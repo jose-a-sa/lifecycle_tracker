@@ -21,16 +21,16 @@
 // SOFTWARE.
 
 
-#ifndef QS_LIFECYCLE_TRACKER_H
-#define QS_LIFECYCLE_TRACKER_H
+#ifndef QS_LIFECYCLE_TRACKER_SINGLE_HEADER_H
+#define QS_LIFECYCLE_TRACKER_SINGLE_HEADER_H
 
-#include <qs/config.h>
-#include <qs/demangler.h>
 
-// Include necessary headers
 #include <array>
 #include <atomic>
-#include <cstddef>
+#include <cstddef> // requires for _HAS_EXCEPTIONS on MSVC
+#include <cstdio>
+#include <exception>
+#include <new> // requires for std::hardware_destructive_interference_size
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -38,6 +38,414 @@
 #if defined(__cpp_lib_string_view)
 #include <string_view>
 #endif
+
+
+#define QS_NAMESPACE qs
+
+#define QS_NAMESPACE_BEGIN                                                                         \
+    namespace QS_NAMESPACE                                                                         \
+    {
+#define QS_NAMESPACE_END }
+
+// Stringify
+#define QS_STRINGIFY(v) #v
+// Concatenation
+#define QS_CONCAT(A, B) A##B
+
+// #define QS_COMPILER_VERSION_CONCAT(major, minor, patch) (10 * (10 * (major) + (minor)) + (patch))
+#define QS_COMPILER_VERSION_CONCAT(major, minor, patch) ((100 * (major)) + (minor))
+// Define a in between macro
+#define QS_IN_BETWEEN(x, a, b) ((a) <= (x) && (x) < (b))
+
+// Detect compiler versions.
+#if defined(__clang__) && !defined(__ibmxl__)
+#define QS_CLANG_VERSION                                                                           \
+    QS_COMPILER_VERSION_CONCAT(__clang_major__, __clang_minor__, __clang_patchlevel__)
+#else
+#define QS_CLANG_VERSION 0
+#endif
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER)
+#define QS_GCC_VERSION QS_COMPILER_VERSION_CONCAT(__GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__)
+#else
+#define QS_GCC_VERSION 0
+#endif
+#if defined(__ICL)
+#define QS_ICC_VERSION __ICL
+#elif defined(__INTEL_COMPILER)
+#define QS_ICC_VERSION __INTEL_COMPILER
+#else
+#define QS_ICC_VERSION 0
+#endif
+#if defined(_MSC_VER)
+#define QS_MSVC_VERSION _MSC_VER
+#else
+#define QS_MSVC_VERSION 0
+#endif
+
+// Detect CPU Families
+// Detect PowerPC (32-bit & 64-bit)
+#if defined(__powerpc__) || defined(__PPC__) || defined(__ppc__)
+#define QS_POWERPC 1
+#else
+#define QS_POWERPC 0
+#endif
+#if defined(__powerpc64__) || defined(__PPC64__) || defined(__ppc64__)
+#define QS_POWERPC64 1
+#else
+#define QS_POWERPC64 0
+#endif
+// Detect ARM (32-bit & 64-bit)
+#if defined(__arm__) || defined(_M_ARM)
+#define QS_ARM 1
+#else
+#define QS_ARM 0
+#endif
+#if defined(__aarch64__) || defined(_M_ARM64)
+#define QS_ARM64 1
+#else
+#define QS_ARM64 0
+#endif
+#if defined(__APPLE__) && QS_ARM64
+#define QS_ARM64_APPLE 1
+#else
+#define QS_ARM64_APPLE 0
+#endif
+// Detect x86 (32-bit & 64-bit)
+#if defined(__x86_64__) || defined(_M_X64)
+#define QS_X86_64 1
+#else
+#define QS_X86_64 0
+#endif
+#if defined(__i386__) || defined(_M_IX86)
+#define QS_X86 1
+#else
+#define QS_X86 0
+#endif
+
+// Detect standard library versions.
+#ifdef _GLIBCXX_RELEASE
+#define QS_GLIBCXX_VERSION _GLIBCXX_RELEASE
+#else
+#define QS_GLIBCXX_VERSION 0
+#endif
+#ifdef _LIBCPP_VERSION
+#define QS_LIBCPP_VERSION _LIBCPP_VERSION
+#else
+#define QS_LIBCPP_VERSION 0
+#endif
+
+#ifdef _MSVC_LANG
+#define QS_CPLUSPLUS _MSVC_LANG
+#else
+#define QS_CPLUSPLUS __cplusplus
+#endif
+
+#if QS_CPLUSPLUS >= 202302L
+#define QS_STD_VERSION 23
+#elif QS_CPLUSPLUS >= 202002L
+#define QS_STD_VERSION 20
+#elif QS_CPLUSPLUS >= 201703L
+#define QS_STD_VERSION 17
+#elif QS_CPLUSPLUS >= 201402L
+#define QS_STD_VERSION 14
+#else
+#define QS_STD_VERSION 11
+#endif
+
+// Detect __has_*.
+#ifdef __has_builtin
+#define QS_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#define QS_HAS_BUILTIN(x) 0
+#endif
+#ifdef __has_feature
+#define QS_HAS_FEATURE(x) __has_feature(x)
+#else
+#define QS_HAS_FEATURE(x) 0
+#endif
+#ifdef __has_include
+#define QS_HAS_INCLUDE(x) __has_include(x)
+#else
+#define QS_HAS_INCLUDE(x) 0
+#endif
+#ifdef __has_cpp_attribute
+#define QS_HAS_CPP_ATTRIBUTE(x) __has_cpp_attribute(x)
+#else
+#define QS_HAS_CPP_ATTRIBUTE(x) 0
+#endif
+#define QS_HAS_CPP14_ATTRIBUTE(attribute) (QS_STD_VER >= 14 && QS_HAS_CPP_ATTRIBUTE(attribute))
+#define QS_HAS_CPP17_ATTRIBUTE(attribute) (QS_STD_VER >= 17 && QS_HAS_CPP_ATTRIBUTE(attribute))
+
+
+// Detect C++11 constexpr.
+#ifdef QS_USE_CONSTEXPR11
+// Use the provided definition.
+#elif QS_CLANG_VERSION && QS_HAS_FEATURE(cxx_constexpr)
+#define QS_USE_CONSTEXPR11 1
+#elif QS_CLANG_VERSION >= 406
+#define QS_USE_CONSTEXPR11 1
+#elif QS_MSVC_VERSION >= 1900 // MSVC 2015+
+#define QS_USE_CONSTEXPR11 1
+#else
+#define QS_USE_CONSTEXPR11 0
+#endif
+#if QS_USE_CONSTEXPR11
+#define QS_CONSTEXPR11 constexpr
+#else
+#define QS_CONSTEXPR11
+#endif
+
+// Detect C++14 relaxed constexpr.
+#ifdef QS_USE_CONSTEXPR14
+// Use the provided definition.
+#elif QS_GCC_VERSION >= 600 && QS_CPLUSPLUS >= 201402L
+#define QS_USE_CONSTEXPR14 1
+#elif QS_ICC_VERSION
+#define QS_USE_CONSTEXPR14 0
+#elif QS_HAS_FEATURE(cxx_relaxed_constexpr) || QS_MSVC_VERSION >= 1912
+#define QS_USE_CONSTEXPR14 1
+#else
+#define QS_USE_CONSTEXPR14 0
+#endif
+#if QS_USE_CONSTEXPR14
+#define QS_CONSTEXPR14 constexpr
+#else
+#define QS_CONSTEXPR14
+#endif
+
+// Detect C++17 constexpr support
+#ifdef QS_USE_CONSTEXPR17
+// Use the provided definition.
+#elif QS_GCC_VERSION >= 700 && QS_CPLUSPLUS >= 201703L
+#define QS_USE_CONSTEXPR17 1
+#elif QS_ICC_VERSION
+#define QS_USE_CONSTEXPR17 0
+#elif QS_HAS_FEATURE(cxx_constexpr_if) || QS_MSVC_VERSION >= 1914
+#define QS_USE_CONSTEXPR17 1
+#else
+#define QS_USE_CONSTEXPR17 0
+#endif
+#if QS_USE_CONSTEXPR17
+#define QS_CONSTEXPR17 constexpr
+#else
+#define QS_CONSTEXPR17
+#endif
+
+// Detect consteval, C++20 constexpr extensions and std::is_constant_evaluated.
+#if !defined(__cpp_lib_is_constant_evaluated)
+#define QS_USE_CONSTEVAL 0
+#elif QS_CPLUSPLUS < 201709L
+#define QS_USE_CONSTEVAL 0
+#elif QS_GLIBCXX_RELEASE && QS_GLIBCXX_RELEASE < 10
+#define QS_USE_CONSTEVAL 0
+#elif QS_LIBCPP_VERSION && QS_LIBCPP_VERSION < 10000
+#define QS_USE_CONSTEVAL 0
+#elif defined(__apple_build_version__) && __apple_build_version__ < 14000029L
+#define QS_USE_CONSTEVAL 0 // consteval is broken in Apple clang < 14.
+#elif QS_MSVC_VERSION && QS_MSVC_VERSION < 1929
+#define QS_USE_CONSTEVAL 0 // consteval is broken in MSVC VS2019 < 16.10.
+#elif defined(__cpp_consteval)
+#define QS_USE_CONSTEVAL 1
+#elif QS_GCC_VERSION >= 1002 || QS_CLANG_VERSION >= 1101
+#define QS_USE_CONSTEVAL 1
+#else
+#define QS_USE_CONSTEVAL 0
+#endif
+#if QS_USE_CONSTEVAL
+#define QS_CONSTEVAL consteval
+#define QS_CONSTEXPR20 constexpr
+#else
+#define QS_CONSTEVAL
+#define QS_CONSTEXPR20
+#endif
+
+
+#ifdef QS_EXCEPTIONS
+// Use the provided definition.
+#elif defined(__cpp_exceptions) || defined(__EXCEPTIONS) || _HAS_EXCEPTIONS
+#define QS_EXCEPTIONS 1
+#else
+#define QS_EXCEPTIONS 0
+#endif
+#if QS_EXCEPTIONS
+#define QS_TRY try
+#define QS_CATCH(x) catch(x)
+#else
+#define QS_TRY if(true)
+#define QS_CATCH(x) if(false)
+#endif
+
+
+#if QS_HAS_CPP17_ATTRIBUTE(fallthrough)
+#define QS_FALLTHROUGH [[fallthrough]]
+#elif QS_CLANG_VERSION
+#define QS_FALLTHROUGH [[clang::fallthrough]]
+#elif QS_GCC_VERSION >= 700 && (!defined(__EDG_VERSION__) || __EDG_VERSION__ >= 520)
+#define QS_FALLTHROUGH [[gnu::fallthrough]]
+#else
+#define QS_FALLTHROUGH
+#endif
+
+// Disable [[noreturn]] on MSVC/NVCC because of bogus unreachable code warnings.
+#if QS_HAS_CPP_ATTRIBUTE(noreturn) && !QS_MSVC_VERSION && !defined(__NVCC__)
+#define QS_NORETURN [[noreturn]]
+#else
+#define QS_NORETURN
+#endif
+
+#ifndef QS_NODISCARD
+#if QS_HAS_CPP17_ATTRIBUTE(nodiscard)
+#define QS_NODISCARD [[nodiscard]]
+#else
+#define QS_NODISCARD
+#endif
+#endif
+
+#ifdef QS_DEPRECATED
+// Use the provided definition.
+#elif QS_HAS_CPP14_ATTRIBUTE(deprecated)
+#define QS_DEPRECATED [[deprecated]]
+#define QS_DEPRECATED_F(msg) [[deprecated(msg)]]
+#else
+#define QS_DEPRECATED
+#define QS_DEPRECATED_F(...)
+#endif
+
+#ifdef QS_INLINE
+// Use the provided definition.
+#elif QS_GCC_VERSION || QS_CLANG_VERSION
+#define QS_ALWAYS_INLINE inline __attribute__((always_inline))
+#else
+#define QS_ALWAYS_INLINE inline
+#endif
+// A version of QS_INLINE to prevent code bloat in debug mode.
+#ifdef NDEBUG
+#define QS_INLINE QS_ALWAYS_INLINE
+#else
+#define QS_INLINE inline
+#endif
+
+#if QS_GCC_VERSION || QS_CLANG_VERSION
+#define QS_VISIBILITY(value) __attribute__((visibility(value)))
+#else
+#define QS_VISIBILITY(value)
+#endif
+
+#ifdef QS_INLINE_VAR
+// Use the provided definition
+#elif defined(__cpp_inline_variables)
+#define QS_INLINE_VAR inline
+#define QS_INLINE_VAR_INIT(...) __VA_ARGS__
+#else
+#define QS_INLINE_VAR
+#define QS_INLINE_VAR_INIT(...)
+#endif
+
+
+#ifdef QS_CACHELINE_SIZE
+// Use the provided definition
+#elif defined(__cpp_lib_hardware_interference_size)
+#define QS_CACHELINE_SIZE std::hardware_destructive_interference_size
+#elif (QS_X86_64 || QS_X86)
+#define QS_CACHELINE_SIZE 64 // x86 and x86_64 CPUs (Intel & AMD)
+#elif QS_ARM64_APPLE
+#define QS_CACHELINE_SIZE 128 // Apple Sillicon chips
+#elif (QS_ARM64 || QS_ARM)
+#define QS_CACHELINE_SIZE 64 // ARM 64-bit (except Apple) and 32-bit (default assumption)
+#elif QS_POWERPC64
+#define QS_CACHELINE_SIZE 128 // PowerPC64 (IBM POWER9/10)
+#elif QS_POWERPC
+#define QS_CACHELINE_SIZE 64 // PowerPC 32-bit (default)
+#else
+#define QS_CACHELINE_SIZE 64 // Default assumption
+#endif
+
+
+QS_NAMESPACE_BEGIN
+
+namespace intl
+{
+    template<class... Args>
+    QS_CONSTEXPR14 void ignore_unused(Args&&...)
+    {}
+} // namespace intl
+
+QS_NAMESPACE_END
+
+
+// -----------------------------------------------------------------------------
+// demangler
+// -----------------------------------------------------------------------------
+
+// demangler includes
+#if (QS_GCC_VERSION || QS_CLANG_VERSION)
+#include <cxxabi.h>
+#include <memory>
+#elif QS_MSVC_VERSION
+#include <DbgHelp.h>
+#include <windows.h>
+#pragma comment(lib, "Dbghelp.lib")
+#else
+#endif
+
+QS_NAMESPACE_BEGIN
+
+template<typename T>
+class demangler
+{
+public:
+    static QS_CONSTEXPR14 std::string const& get()
+    {
+        if(type_name_.empty())
+            set_default_();
+        return type_name_;
+    }
+
+#if defined(__cpp_lib_string_view)
+    static QS_CONSTEXPR17 void set(std::string_view const type_name) { type_name_ = type_name; }
+#else
+    template<size_t N>
+    static QS_CONSTEXPR17 void set(char const (&type_name)[N])
+    {
+        type_name_.assign(type_name, N - 1);
+    }
+    static QS_CONSTEXPR17 void set(std::string const& type_name) { type_name_ = type_name; }
+#endif
+
+private:
+    QS_INLINE_VAR static std::string type_name_ QS_INLINE_VAR_INIT({});
+
+    static QS_CONSTEXPR17 void set_default_()
+    {
+#if QS_GCC_VERSION || QS_CLANG_VERSION
+        int                   status = 0;
+        size_t                len    = 0;
+        std::unique_ptr<char> demangled;
+        demangled.reset(abi::__cxa_demangle(typeid(T).name(), nullptr, &len, &status));
+        if(status == 0)
+            type_name_.assign(demangled.get(), len - 1);
+        else
+            type_name_ = typeid(T).name();
+
+#else
+        type_name_ = typeid(T).name();
+#endif
+    }
+};
+
+#if !defined(__cpp_inline_variables)
+template<typename T>
+std::string demangler<T>::type_name_{};
+#endif
+
+
+QS_NAMESPACE_END
+
+
+// -----------------------------------------------------------------------------
+// lifecycle_tracker
+// -----------------------------------------------------------------------------
+
 
 // Check for fmt library support
 #ifdef QS_LIFECYCLE_TRACKER_WITH_FMTLIB
@@ -214,6 +622,7 @@ constexpr char const* lifecycle_default_logger<T, Uuid>::counter_fmt_;
 template<class T, size_t Uuid = 0>
 struct lifecycle_logger : lifecycle_default_logger<T, Uuid>
 {};
+
 
 // Namespace for internal implementation details
 namespace intl
@@ -510,8 +919,6 @@ namespace intl
         QS_CONSTEXPR17 void log_and_increment() const
         {
             // increment the appropriate counter for the lifecycle event
-            // memory_order_relaxed is used as the order of increments in this step is not really
-            // important
             get_counter<Cnt>().fetch_add(1, std::memory_order_relaxed);
             // magic of logging occurs here, where we go from Base -> Derived: value_type, Base ->
             // value_type we pass value_type const& reference to the logger which can be used to
@@ -630,4 +1037,4 @@ struct std::formatter<qs::lifecycle_tracker_mt<T, Uuid>> : std::formatter<T>
 #undef QS_LIFECYCLE_LOGGER_STRING_ARG
 
 
-#endif // QS_LIFECYCLE_TRACKER_H
+#endif // QS_LIFECYCLE_TRACKER_SINGLE_HEADER_H

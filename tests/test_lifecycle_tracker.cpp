@@ -1,6 +1,6 @@
 #include <gmock/gmock.h>
 
-#include <header_only/lifecycle_tracker.h>
+#include <qs/lifecycle_tracker.h>
 
 #include <type_traits>
 #include <string>
@@ -101,41 +101,55 @@ template<size_t Uuid>
 struct qs::lifecycle_logger<MyInt, Uuid> : lc_logger_tester<MyInt, Uuid>
 {};
 
+TEST(LifetimeTracker, ExampleTest)
+{
+    {
+        std::vector<qs::lifecycle_tracker<MyInt>> vec;
+        vec.reserve(100);
+        
+        vec.emplace_back(42);
+        vec.insert(vec.cend(), {11, 17, 20} /*implicit conversion*/);
+        qs::lifecycle_tracker<MyInt>::print_counters();
+        vec.assign({23});
+    }
+    qs::lifecycle_tracker<MyInt>::print_counters();
+}
+
 TEST(LifetimeTracker, CopyTrivialType)
 {
     {
-        std::vector<lc_tracker_tester<MyInt>> vec;
+        std::vector<lc_tracker_tester<MyInt,false,42>> vec;
         vec.reserve(100);
 
         vec.emplace_back(10);
         vec.emplace_back(17);
 
-        lc_tracker_tester<MyInt>::compare_print_counters({2, 0, 0, 0, 0, 0});
-        lc_logger_tester<MyInt>::expect_values_eq({10, 17});
+        lc_tracker_tester<MyInt,false,42>::compare_print_counters({2, 0, 0, 0, 0, 0});
+        lc_logger_tester<MyInt,42>::expect_values_eq({10, 17});
 
         vec.insert(vec.cend(), {22, 23, 24, 25});
-        lc_tracker_tester<MyInt>::compare_print_counters({6, 4, 0, 0, 0, 4});
-        lc_logger_tester<MyInt>::expect_values_eq({22, 23, 24, 25, 22, 23, 24, 25, 25, 24, 23, 22});
+        lc_tracker_tester<MyInt,false,42>::compare_print_counters({6, 4, 0, 0, 0, 4});
+        lc_logger_tester<MyInt,42>::expect_values_eq({22, 23, 24, 25, 22, 23, 24, 25, 25, 24, 23, 22});
 
         auto vec_c = vec; // copy
-        lc_tracker_tester<MyInt>::compare_print_counters({6, 10, 0, 0, 0, 4});
-        lc_logger_tester<MyInt>::expect_values_eq({10, 17, 22, 23, 24, 25});
+        lc_tracker_tester<MyInt,false,42>::compare_print_counters({6, 10, 0, 0, 0, 4});
+        lc_logger_tester<MyInt,42>::expect_values_eq({10, 17, 22, 23, 24, 25});
 
         vec.erase(vec.begin() + 4, vec.end());
-        lc_tracker_tester<MyInt>::compare_print_counters({6, 10, 0, 0, 0, 6});
-        lc_logger_tester<MyInt>::expect_values_eq({25, 24});
+        lc_tracker_tester<MyInt,false,42>::compare_print_counters({6, 10, 0, 0, 0, 6});
+        lc_logger_tester<MyInt,42>::expect_values_eq({25, 24});
 
         vec.assign({111, 112, 113});
-        lc_tracker_tester<MyInt>::compare_print_counters({9, 10, 0, 3, 0, 10});
-        lc_logger_tester<MyInt>::expect_values_eq({111, 112, 113, 111, 112, 113, 23, 113, 112, 111});
+        lc_tracker_tester<MyInt,false,42>::compare_print_counters({9, 10, 0, 3, 0, 10});
+        lc_logger_tester<MyInt,42>::expect_values_eq({111, 112, 113, 111, 112, 113, 23, 113, 112, 111});
 
         vec = std::move(vec_c);
-        lc_tracker_tester<MyInt>::compare_print_counters({9, 10, 0, 3, 0, 13});
-        lc_logger_tester<MyInt>::expect_values_eq({113, 112, 111});
+        lc_tracker_tester<MyInt,false,42>::compare_print_counters({9, 10, 0, 3, 0, 13});
+        lc_logger_tester<MyInt,42>::expect_values_eq({113, 112, 111});
     }
 
-    lc_tracker_tester<MyInt>::compare_print_counters({9, 10, 0, 3, 0, 19});
-    lc_logger_tester<MyInt>::expect_values_eq({25, 24, 23, 22, 17, 10});
+    lc_tracker_tester<MyInt,false,42>::compare_print_counters({9, 10, 0, 3, 0, 19});
+    lc_logger_tester<MyInt,42>::expect_values_eq({25, 24, 23, 22, 17, 10});
 }
 
 
